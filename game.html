@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Enhanced Phaser Game</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #333;
+        }
+        #game-container {
+            width: 800px;
+            height: 600px;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+    <script>
+        // Store high scores in localStorage
+        let highScores = JSON.parse(localStorage.getItem('highScores')) || [];
+
+        class MenuScene extends Phaser.Scene {
+            constructor() {
+                super({ key: 'MenuScene' });
+            }
+
+            create() {
+                // Set background
+                this.cameras.main.setBackgroundColor('#000033');
+                
+                // Create starfield effect
+                for (let i = 0; i < 100; i++) {
+                    const x = Phaser.Math.Between(0, 800);
+                    const y = Phaser.Math.Between(0, 600);
+                    this.add.circle(x, y, 1, 0xffffff);
+                }
+
+                // Title
+                this.add.text(400, 200, 'PLATFORM ADVENTURE', {
+                    fontSize: '48px',
+                    fill: '#fff',
+                    fontFamily: 'Arial'
+                }).setOrigin(0.5);
+
+                // Start button
+                const startButton = this.add.text(400, 300, 'Start Game', {
+                    fontSize: '32px',
+                    fill: '#fff',
+                    fontFamily: 'Arial',
+                    backgroundColor: '#000',
+                    padding: { x: 20, y: 10 }
+                }).setOrigin(0.5).setInteractive();
+
+                // High scores button
+                const scoresButton = this.add.text(400, 380, 'High Scores', {
+                    fontSize: '32px',
+                    fill: '#fff',
+                    fontFamily: 'Arial',
+                    backgroundColor: '#000',
+                    padding: { x: 20, y: 10 }
+                }).setOrigin(0.5).setInteractive();
+
+                startButton.on('pointerdown', () => {
+                    this.scene.start('GameScene', { level: 1 });
+                });
+
+                scoresButton.on('pointerdown', () => {
+                    this.scene.start('ScoresScene');
+                });
+            }
+        }
+
+        class ScoresScene extends Phaser.Scene {
+            constructor() {
+                super({ key: 'ScoresScene' });
+            }
+
+            create() {
+                this.cameras.main.setBackgroundColor('#000033');
+
+                this.add.text(400, 100, 'HIGH SCORES', {
+                    fontSize: '48px',
+                    fill: '#fff',
+                    fontFamily: 'Arial'
+                }).setOrigin(0.5);
+
+                // Display high scores
+                highScores.sort((a, b) => b.score - a.score);
+                highScores.slice(0, 5).forEach((score, i) => {
+                    this.add.text(400, 200 + (i * 50), `${i + 1}. Score: ${score.score} - Time: ${score.time}s`, {
+                        fontSize: '24px',
+                        fill: '#fff',
+                        fontFamily: 'Arial'
+                    }).setOrigin(0.5);
+                });
+
+                // Back button
+                const backButton = this.add.text(400, 500, 'Back to Menu', {
+                    fontSize: '32px',
+                    fill: '#fff',
+                    fontFamily: 'Arial',
+                    backgroundColor: '#000',
+                    padding: { x: 20, y: 10 }
+                }).setOrigin(0.5).setInteractive();
+
+                backButton.on('pointerdown', () => {
+                    this.scene.start('MenuScene');
+                });
+            }
+        }
+
+        class GameScene extends Phaser.Scene {
+            constructor() {
+                super({ key: 'GameScene' });
+            }
+
+            init(data) {
+                this.currentLevel = data.level || 1;
+            }
+
+            preload() {
+                // Remove sprite loading since we're using shapes
+            }
+
+            create() {
+                // Initialize game state
+                this.score = 0;
+                this.gameTimer = 0;
+                this.isGameOver = false;
+                this.hasSpeedPowerup = false;
+                this.powerupTimer = null;
+
+                // Set background
+                this.cameras.main.setBackgroundColor('#87CEEB');
+
+                // UI elements
+                this.scoreText = this.add.text(16, 16, 'Score: 0', {
+                    fontSize: '32px',
+                    fill: '#fff',
+                    fontFamily: 'Arial'
+                });
+                this.timeText = this.add.text(16, 56, 'Time: 0', {
+                    fontSize: '32px',
+                    fill: '#fff',
+                    fontFamily: 'Arial'
+                });
+                this.levelText = this.add.text(16, 96, `Level: ${this.currentLevel}`, {
+                    fontSize: '32px',
+                    fill: '#fff',
+                    fontFamily: 'Arial'
+                });
+
+                // Timer
+                this.time.addEvent({
+                    delay: 1000,
+                    callback: this.updateTimer,
+                    callbackScope: this,
+                    loop: true
+                });
+
+                // Create game objects
+                this.createPlatforms();
+                this.createPlayer();
+                this.createCollectibles();
+                this.createHazards();
+                this.createPowerups();
+
+                // Setup collisions
+                this.physics.add.collider(this.player, this.platforms);
+                this.physics.add.collider(this.stars, this.platforms);
+                this.physics.add.collider(this.gems, this.platforms);
+                this.physics.add.collider(this.bombs, this.platforms);
+                this.physics.add.collider(this.powerups, this.platforms);
+
+                // Setup overlaps
+                this.physics.add.overlap(this.player, this.stars, this.collectStar, null, this);
+                this.physics.add.overlap(this.player, this.gems, this.collectGem, null, this);
+                this.physics.add.overlap(this.player, this.bombs, this.hitBomb, null, this);
+                this.physics.add.overlap(this.player, this.powerups, this.collectPowerup, null, this);
+
+                // Input
+                this.cursors = this.input.keyboard.createCursorKeys();
+            }
+
+            createPlayer() {
+                // Create player as a rectangle
+                this.player = this.add.rectangle(100, 450, 32, 48, 0xff0000);
+                this.physics.add.existing(this.player);
+                this.player.body.setBounce(0.2);
+                this.player.body.setCollideWorldBounds(true);
+            }
+
+            update() {
+                if (this.isGameOver) return;
+
+                const baseSpeed = 160;
+                const speedMultiplier = this.hasSpeedPowerup ? 1.5 : 1;
+                const moveSpeed = baseSpeed * speedMultiplier;
+
+                // Handle left/right movement
+                if (this.cursors.left.isDown) {
+                    this.player.body.setVelocityX(-moveSpeed);
+                } else if (this.cursors.right.isDown) {
+                    this.player.body.setVelocityX(moveSpeed);
+                } else {
+                    this.player.body.setVelocityX(0);
+                }
+
+                // Handle jumping
+                if (this.cursors.up.isDown && this.player.body.touching.down) {
+                    this.player.body.setVelocityY(-330);
+                }
+            }
+
+            createPlatforms() {
+                this.platforms = this.physics.add.staticGroup();
+
+                // Create ground
+                const ground = this.add.rectangle(400, 568, 800, 64, 0x00ff00);
+                this.physics.add.existing(ground, true);
+                this.platforms.add(ground);
+
+                // Level-specific platforms
+                // Positions are adjusted to ensure reachability:
+                // - Maximum jump height is roughly 160px
+                // - Horizontal spacing considers player movement speed
+                const platformPositions = {
+                    1: [
+                        [200, 450], // First stepping stone
+                        [400, 350], // Middle platform
+                        [600, 250]  // Higher platform
+                    ],
+                    2: [
+                        [150, 450],
+                        [400, 400],
+                        [650, 350],
+                        [300, 250]
+                    ],
+                    3: [
+                        [200, 450],
+                        [500, 400],
+                        [200, 300],
+                        [500, 200]
+                    ]
+                };
+
+                platformPositions[this.currentLevel].forEach(([x, y]) => {
+                    const platform = this.add.rectangle(x, y, 200, 32, 0x00ff00);
+                    this.physics.add.existing(platform, true);
+                    this.platforms.add(platform);
+                });
+            }
+
+            createCollectibles() {
+                this.stars = this.physics.add.group();
+                for (let i = 0; i < 12; i++) {
+                    const x = Phaser.Math.Between(0, 800);
+                    const star = this.add.circle(x, 0, 8, 0xffff00);
+                    this.physics.add.existing(star);
+                    this.stars.add(star);
+                    star.body.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
+                }
+
+                this.gems = this.physics.add.group();
+                for (let i = 0; i < 3; i++) {
+                    const x = Phaser.Math.Between(0, 800);
+                    const gem = this.add.rectangle(x, 0, 16, 16, 0x00ffff);
+                    this.physics.add.existing(gem);
+                    this.gems.add(gem);
+                    gem.body.setBounceY(0.6);
+                }
+            }
+
+            createHazards() {
+                this.bombs = this.physics.add.group();
+                this.time.addEvent({
+                    delay: 5000,
+                    callback: this.spawnBomb,
+                    callbackScope: this,
+                    loop: true
+                });
+            }
+
+            createPowerups() {
+                this.powerups = this.physics.add.group();
+                this.time.addEvent({
+                    delay: 10000,
+                    callback: this.spawnPowerup,
+                    callbackScope: this,
+                    loop: true
+                });
+            }
+
+            spawnBomb() {
+                if (this.isGameOver) return;
+                
+                const x = this.player.x < 400 ? 
+                    Phaser.Math.Between(400, 800) : 
+                    Phaser.Math.Between(0, 400);
+                
+                const bomb = this.add.circle(x, 16, 8, 0xff0000);
+                this.physics.add.existing(bomb);
+                this.bombs.add(bomb);
+                bomb.body.setBounce(1);
+                bomb.body.setCollideWorldBounds(true);
+                bomb.body.setVelocity(Phaser.Math.Between(-200, 200), 20);
+            }
+
+            spawnPowerup() {
+                if (this.isGameOver) return;
+                
+                const x = Phaser.Math.Between(0, 800);
+                const powerup = this.add.rectangle(x, 0, 24, 24, 0xff00ff);
+                this.physics.add.existing(powerup);
+                this.powerups.add(powerup);
+                powerup.body.setBounceY(0.6);
+            }
+
+            updateTimer() {
+                if (this.isGameOver) return;
+                this.gameTimer++;
+                this.timeText.setText('Time: ' + this.gameTimer);
+            }
+
+            collectStar(player, star) {
+                star.destroy();
+                this.score += 10;
+                this.scoreText.setText('Score: ' + this.score);
+
+                if (this.stars.countActive(true) === 0) {
+                    this.levelComplete();
+                }
+            }
+
+            collectGem(player, gem) {
+                gem.destroy();
+                this.score += 50;
+                this.scoreText.setText('Score: ' + this.score);
+            }
+
+            collectPowerup(player, powerup) {
+                powerup.destroy();
+                
+                // Speed powerup
+                this.hasSpeedPowerup = true;
+                
+                if (this.powerupTimer) {
+                    this.powerupTimer.remove();
+                }
+                
+                this.powerupTimer = this.time.delayedCall(5000, () => {
+                    this.hasSpeedPowerup = false;
+                }, null, this);
+
+                // Visual feedback
+                this.player.setFillStyle(0xff00ff);
+                this.time.delayedCall(5000, () => {
+                    this.player.setFillStyle(0xff0000);
+                }, null, this);
+            }
+
+            hitBomb(player, bomb) {
+                this.gameOver();
+            }
+
+            gameOver() {
+                this.physics.pause();
+                this.player.setFillStyle(0x666666);
+                this.isGameOver = true;
+
+                // Save score
+                highScores.push({
+                    score: this.score,
+                    time: this.gameTimer
+                });
+                localStorage.setItem('highScores', JSON.stringify(highScores));
+
+                // Game over text
+                this.add.text(400, 300, 'Game Over', {
+                    fontSize: '64px',
+                    fill: '#fff',
+                    fontFamily: 'Arial'
+                }).setOrigin(0.5);
+
+                // Restart button
+                const restartButton = this.add.text(400, 400, 'Back to Menu', {
+                    fontSize: '32px',
+                    fill: '#fff',
+                    fontFamily: 'Arial',
+                    backgroundColor: '#000',
+                    padding: { x: 20, y: 10 }
+                }).setOrigin(0.5).setInteractive();
+
+                restartButton.on('pointerdown', () => {
+                    this.scene.start('MenuScene');
+                });
+            }
+
+            levelComplete() {
+                if (this.currentLevel < 3) {
+                    this.scene.start('GameScene', { level: this.currentLevel + 1 });
+                } else {
+                    // Game completed
+                    this.add.text(400, 300, 'Congratulations!\nYou completed all levels!', {
+                        fontSize: '48px',
+                        fill: '#fff',
+                        fontFamily: 'Arial',
+                        align: 'center'
+                    }).setOrigin(0.5);
+
+                    const menuButton = this.add.text(400, 400, 'Back to Menu', {
+                        fontSize: '32px',
+                        fill: '#fff',
+                        fontFamily: 'Arial',
+                        backgroundColor: '#000',
+                        padding: { x: 20, y: 10 }
+                    }).setOrigin(0.5).setInteractive();
+
+                    menuButton.on('pointerdown', () => {
+                        this.scene.start('MenuScene');
+                    });
+                }
+            }
+        }
+
+        const config = {
+            type: Phaser.AUTO,
+            width: 800,
+            height: 600,
+            parent: 'game-container',
+            physics: {
+                default: 'arcade',
+                arcade: {
+                    gravity: { y: 300 },
+                    debug: false
+                }
+            },
+            scene: [MenuScene, GameScene, ScoresScene]
+        };
+
+        try {
+            const game = new Phaser.Game(config);
+        } catch (error) {
+            console.error('Error creating game:', error);
+        }
+    </script>
+</body>
+</html> 

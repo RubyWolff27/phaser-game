@@ -1,0 +1,11 @@
+{
+  "name": "phaser-game",
+  "version": "1.0.0",
+  "description": "Simple Phaser game",
+  "scripts": {
+    "start": "http-server -p 8080 --cors"
+  },
+  "dependencies": {
+    "http-server": "^14.1.1"
+  }
+} 
